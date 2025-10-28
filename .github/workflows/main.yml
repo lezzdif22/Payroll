@@ -25,11 +25,12 @@ jobs:
           pip install pyinstaller
 
       - name: Build EXE with PyInstaller
+        shell: cmd
         run: |
-          # Adjust --add-data pairs to include any non-Python files your app needs.
-          python -m PyInstaller --noconfirm --clean --onefile \
-            --add-data "templates;templates" \
-            --add-data "PLV LOGO.png;." \
+          REM Adjust --add-data pairs to include any non-Python files your app needs.
+          python -m PyInstaller --noconfirm --clean --onefile ^
+            --add-data "templates;templates" ^
+            --add-data "PLV LOGO.png;." ^
             --name dynamic_payroll main.py
 
       - name: Upload EXE artifact

@@ -24,14 +24,14 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Build EXE with PyInstaller
+      - name: Build EXE with PyInstaller (GUI)
         shell: cmd
         run: |
           REM Adjust --add-data pairs to include any non-Python files your app needs.
-          python -m PyInstaller --noconfirm --clean --onefile ^
+          python -m PyInstaller --noconfirm --clean --windowed --onefile ^
             --add-data "templates;templates" ^
             --add-data "PLV LOGO.png;." ^
-            --name dynamic_payroll main.py
+            --name dynamic_payroll_gui dynamic_payroll_gui.py
 
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4

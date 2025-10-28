@@ -1,0 +1,46 @@
+==================================================
+                PAYSLIP TEMPLATE
+==================================================
+
+COMPANY NAME: Tech Solutions Inc.
+PAY PERIOD: [Month Year]
+PAY DATE: [Date]
+
+EMPLOYEE INFORMATION:
+Name: [Employee Name]
+Employee ID: [Employee ID]
+Department: [Department]
+Position: [Position]
+
+PAY DETAILS:
+--------------------------------------------------
+Regular Hours: [Hours Worked] hours
+Hourly Rate: $[Hourly Rate]
+Overtime Hours: [Overtime Hours] hours (if applicable)
+Overtime Rate: $[Overtime Rate] (if applicable)
+
+GROSS PAY CALCULATION:
+Regular Pay: $[Regular Pay Amount]
+Overtime Pay: $[Overtime Pay Amount]
+Gross Pay: $[Gross Pay Total]
+
+DEDUCTIONS:
+--------------------------------------------------
+Federal Tax (20%): -$[Federal Tax Amount]
+State Tax (5%): -$[State Tax Amount]
+Social Security (6.2%): -$[Social Security Amount]
+Medicare (1.45%): -$[Medicare Amount]
+Health Insurance: -$[Insurance Amount]
+Retirement (401k): -$[Retirement Amount]
+
+Total Deductions: -$[Total Deductions]
+
+NET PAY: $[Net Pay Amount]
+==================================================
+
+Payment Method: Direct Deposit
+Account: ****-****-****-1234
+
+For questions about this payslip, contact HR at hr@techsolutions.com
+
+==================================================

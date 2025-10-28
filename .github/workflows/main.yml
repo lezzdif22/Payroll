@@ -33,9 +33,17 @@ jobs:
             --add-data "PLV LOGO.png;." ^
             --name dynamic_payroll_gui dynamic_payroll_gui.py
 
+      - name: Bundle templates and data
+        shell: cmd
+        run: |
+          if not exist dist\templates mkdir dist\templates
+          if exist templates\"Template Payslip.xlsx" copy /Y templates\"Template Payslip.xlsx" dist\templates\
+          if exist "Template Payslip.xlsx" copy /Y "Template Payslip.xlsx" dist\
+          if exist emails.csv copy /Y emails.csv dist\
+
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4
         with:
           name: dynamic_payroll_exe
-          path: dist/*.exe
+          path: dist/**
 

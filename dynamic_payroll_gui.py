@@ -585,7 +585,10 @@ class DynamicPayrollGUIGenerator:
                         label = self.processor.merged_headers[idx]
             except Exception:
                 label = None
-            if not label:
+            short_name = (p.get('name') or '').strip()
+            if short_name:
+                label = short_name
+            elif not label:
                 label = p.get('name') or f'Period {i+1}'
 
             period_keys.append(key)
@@ -682,7 +685,17 @@ class DynamicPayrollGUIGenerator:
                 pd = emp.get('periods', {}).get(lookup_key)
                 if pd is None:
                     # fallback: try label-based key (older processor formats)
-                    pd = emp.get('periods', {}).get(pname) or emp.get('periods', {}).get(pname.strip()) or {}
+                    canon = ''
+                    try:
+                        canon = (self.processor.periods[k_idx].get('name') or '').strip()
+                    except Exception:
+                        canon = ''
+                    pd = (
+                        emp.get('periods', {}).get(pname)
+                        or emp.get('periods', {}).get(pname.strip())
+                        or (canon and emp.get('periods', {}).get(canon))
+                        or {}
+                    )
                 if pd is None:
                     pd = {}
                 hours = 0.0

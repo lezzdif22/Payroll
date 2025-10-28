@@ -172,8 +172,11 @@ class DynamicPayrollProcessor:
                     # Detect period columns by regex on headers
                     for i, header in enumerate(headers):
                         if _is_period_header(header):
+                            match = PERIOD_HEADER_REGEX.search(header or "")
+                            short_name = _normalize_header_text(match.group(0)) if match else _normalize_header_text(header)
                             self.periods.append({
-                                'name': _normalize_header_text(header),
+                                'name': short_name,
+                                'display_name': _normalize_header_text(header),
                                 'column_index': i,
                                 'hours_col': i,
                                 'amount_col': None
@@ -377,7 +380,14 @@ class DynamicPayrollProcessor:
                                 hours = self.safe_float(raw_val, default=0)
                                 rate = employee.get('hourly_rate', 0) or 0
                                 amount = hours * rate if rate else 0
-                                employee['periods'][period['name']] = {'hours': hours, 'amount': amount, 'raw': raw_val}
+                                period_data = {'hours': hours, 'amount': amount, 'raw': raw_val}
+                                canonical_name = period.get('name') or _normalize_header_text(headers[col_idx] if col_idx < len(headers) else '')
+                                employee['periods'][canonical_name] = period_data
+
+                                display_name = period.get('display_name')
+                                if display_name and display_name != canonical_name:
+                                    employee['periods'][display_name] = period_data
+
                                 employee['total_gross'] += amount
 
                         # --- robust summary/tax mapping by header names ---

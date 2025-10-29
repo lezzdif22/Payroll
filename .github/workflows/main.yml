@@ -36,10 +36,19 @@ jobs:
       - name: Bundle templates and data
         shell: cmd
         run: |
-          if not exist dist\templates mkdir dist\templates
-          if exist templates\"Template Payslip.xlsx" copy /Y templates\"Template Payslip.xlsx" dist\templates\
-          if exist "Template Payslip.xlsx" copy /Y "Template Payslip.xlsx" dist\
-          if exist emails.csv copy /Y emails.csv dist\
+          if exist dist\templates (
+            rmdir /S /Q dist\templates
+          )
+          if exist templates (
+            xcopy templates dist\templates /E /I /Y >NUL
+          ) else (
+            if exist "Template Payslip.xlsx" (
+              if not exist dist\templates mkdir dist\templates
+              copy /Y "Template Payslip.xlsx" dist\templates\ >NUL
+            )
+          )
+          if exist emails.csv copy /Y emails.csv dist\ >NUL
+          if exist emails\emails.csv copy /Y emails\emails.csv dist\ >NUL
 
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4

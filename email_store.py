@@ -15,6 +15,15 @@ from contextlib import contextmanager
 from typing import Dict, Iterable, Optional
 
 
+_PLACEHOLDER_EMAILS_DEFAULT = {"rhadz5678@gmail.com"}
+_env_placeholders = {
+    e.strip().lower()
+    for e in (os.getenv("PAYROLL_PLACEHOLDER_EMAILS") or "").split(",")
+    if e.strip()
+}
+PLACEHOLDER_EMAILS = _PLACEHOLDER_EMAILS_DEFAULT | _env_placeholders
+
+
 def _ensure_parent_dir(path: str) -> None:
     parent = os.path.dirname(os.path.abspath(path))
     if parent and not os.path.exists(parent):
@@ -35,7 +44,12 @@ def _clean_lower(value: Optional[str]) -> Optional[str]:
 
 def _clean_email(value: Optional[str]) -> Optional[str]:
     val = _clean(value)
-    return val.lower() if val else None
+    if not val:
+        return None
+    lowered = val.lower()
+    if lowered in PLACEHOLDER_EMAILS:
+        return None
+    return lowered
 
 
 class EmailStore:
@@ -76,6 +90,12 @@ class EmailStore:
                 )
                 """
             )
+            if PLACEHOLDER_EMAILS:
+                placeholders = ",".join("?" for _ in PLACEHOLDER_EMAILS)
+                cur.execute(
+                    f"DELETE FROM email_addresses WHERE LOWER(email) IN ({placeholders})",
+                    tuple(PLACEHOLDER_EMAILS),
+                )
             conn.commit()
 
     # ------------------------------------------------------------------
@@ -134,17 +154,23 @@ class EmailStore:
                 cur.execute("SELECT email FROM email_addresses WHERE seq = ? ORDER BY last_updated DESC LIMIT 1", (seq,))
                 row = cur.fetchone()
                 if row:
-                    return row[0]
+                    email = row[0]
+                    if email and email.lower() not in PLACEHOLDER_EMAILS:
+                        return email
             if account_no:
                 cur.execute("SELECT email FROM email_addresses WHERE account_no = ? ORDER BY last_updated DESC LIMIT 1", (account_no,))
                 row = cur.fetchone()
                 if row:
-                    return row[0]
+                    email = row[0]
+                    if email and email.lower() not in PLACEHOLDER_EMAILS:
+                        return email
             if name_key:
                 cur.execute("SELECT email FROM email_addresses WHERE name_key = ? ORDER BY last_updated DESC LIMIT 1", (name_key,))
                 row = cur.fetchone()
                 if row:
-                    return row[0]
+                    email = row[0]
+                    if email and email.lower() not in PLACEHOLDER_EMAILS:
+                        return email
         return None
 
     def apply_to_employees(self, employees: Iterable[Dict]) -> None:

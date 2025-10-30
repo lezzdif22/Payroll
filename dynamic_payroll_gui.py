@@ -225,22 +225,41 @@ class DynamicPayrollGUIGenerator:
             e = (e or "").strip()
             return bool(re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", e))
 
+        employees = list(getattr(self.processor, "employees", []) or [])
+        if not employees:
+            employees = list(getattr(self, "employee_data", []) or [])
+
+        if not employees:
+            try:
+                messagebox.showwarning("Emails", "Load a payroll file first before entering missing emails.")
+            except Exception:
+                print("No employees loaded yet; cannot enter emails.")
+            return
+
+        def _primary_email(emp_dict):
+            for key in ("email", "work_email", "personal_email"):
+                val = (emp_dict.get(key) or "").strip()
+                if val:
+                    return val
+            return ""
+
         missing = []
-        for emp in getattr(self.processor, "employees", []):
-            email = (emp.get("email") or "").strip()
-            if not _valid_email(email):
+        for emp in employees:
+            if not _valid_email(_primary_email(emp)):
                 missing.append(emp)
 
-        if not missing:
-            try:
-                messagebox.showinfo("Emails", "No missing emails. You're all set!")
-            except Exception:
-                print("No missing emails.")
-            return
+        if missing:
+            rows_source = missing
+            dialog_title = "Enter Missing Emails"
+            banner_text = None
+        else:
+            rows_source = employees
+            dialog_title = "Review Emails"
+            banner_text = "All employees currently have an email on file. You can review or update them below."
 
         # Build the dialog
         win = tk.Toplevel(self.root)
-        win.title("Enter Missing Emails")
+        win.title(dialog_title)
         win.resizable(False, True)
         win.grab_set()
 
@@ -261,18 +280,26 @@ class DynamicPayrollGUIGenerator:
         canvas.pack(side="left", fill="both", expand=True)
         scroll.pack(side="right", fill="y")
 
-        # Headers
-        ttk.Label(form, text="Employee", font=("TkDefaultFont", 10, "bold")).grid(row=0, column=0, sticky="w", padx=6, pady=6)
-        ttk.Label(form, text="Email",    font=("TkDefaultFont", 10, "bold")).grid(row=0, column=1, sticky="w", padx=6, pady=6)
+        # Headers / banner
+        if banner_text:
+            ttk.Label(form, text=banner_text, foreground="#555555", wraplength=520, justify="left").grid(row=0, column=0, columnspan=3, sticky="w", padx=6, pady=(4, 0))
+            start_row = 1
+        else:
+            start_row = 0
+
+        header_row = start_row
+        ttk.Label(form, text="Employee", font=("TkDefaultFont", 10, "bold")).grid(row=header_row, column=0, sticky="w", padx=6, pady=6)
+        ttk.Label(form, text="Email",    font=("TkDefaultFont", 10, "bold")).grid(row=header_row, column=1, sticky="w", padx=6, pady=6)
 
         # Rows
         rows = []
-        for i, emp in enumerate(missing, start=1):
+        for idx, emp in enumerate(rows_source, start=1):
+            row = header_row + idx
             name = emp.get("name", "") or f"(No name — seq {emp.get('seq','')})"
-            ttk.Label(form, text=name).grid(row=i, column=0, sticky="w", padx=6, pady=4)
-            var = tk.StringVar(value=emp.get("email", ""))
+            ttk.Label(form, text=name).grid(row=row, column=0, sticky="w", padx=6, pady=4)
+            var = tk.StringVar(value=_primary_email(emp))
             entry = ttk.Entry(form, textvariable=var, width=44)
-            entry.grid(row=i, column=1, sticky="w", padx=6, pady=4)
+            entry.grid(row=row, column=1, sticky="w", padx=6, pady=4)
             rows.append((emp, var))
         
 

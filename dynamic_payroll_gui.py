@@ -268,7 +268,7 @@ class DynamicPayrollGUIGenerator:
         # Rows
         rows = []
         for i, emp in enumerate(missing, start=1):
-            name = emp.get("name", "")
+            name = emp.get("name", "") or f"(No name — seq {emp.get('seq','')})"
             ttk.Label(form, text=name).grid(row=i, column=0, sticky="w", padx=6, pady=4)
             var = tk.StringVar(value=emp.get("email", ""))
             entry = ttk.Entry(form, textvariable=var, width=44)
@@ -283,6 +283,10 @@ class DynamicPayrollGUIGenerator:
             bad = []
             for emp, var in rows:
                 e = (var.get() or "").strip()
+                # Allow empty entries (user may only fill some emails). Only treat non-empty invalids as errors.
+                if not e:
+                    # leave as missing
+                    continue
                 if not _valid_email(e):
                     bad.append((emp.get("name",""), e))
                 else:

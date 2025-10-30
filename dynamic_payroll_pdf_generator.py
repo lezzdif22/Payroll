@@ -17,12 +17,24 @@ except Exception:
 # Import them conditionally and fall back so the preview/detection features remain usable.
 HAS_OPENPYXL = False
 HAS_REPORTLAB = False
+HAS_WIN32_EXCEL = False
+win32com = None
+pythoncom = None
 try:
     from openpyxl import load_workbook
     from openpyxl.styles import Font, Alignment, Border, Side
     HAS_OPENPYXL = True
 except Exception:
     load_workbook = None
+
+try:
+    if platform.system().lower().startswith('win'):
+        import win32com.client  # type: ignore
+        import pythoncom  # type: ignore
+        HAS_WIN32_EXCEL = True
+except Exception:
+    win32com = None
+    pythoncom = None
 
 try:
     from reportlab.lib import colors
@@ -48,7 +60,10 @@ except Exception:
     TTFont = None
 
 
-PERIOD_HEADER_REGEX = re.compile(r'([A-Za-z]{3,}\.?)\s*\d{0,2}\s*[-–—]\s*\d{1,2}', re.IGNORECASE)
+PERIOD_HEADER_REGEX = re.compile(
+    r'([A-Za-z]{3,}\.?)\s*\d{1,2}(?:st|nd|rd|th)?\s*[-–—]\s*\d{1,2}(?:st|nd|rd|th)?',
+    re.IGNORECASE,
+)
 
 
 def _normalize_header_text(header: str) -> str:
@@ -137,8 +152,8 @@ class DynamicPayrollProcessor:
                     # Second pass: fallback - find a row with multiple period-like entries
                     if header_row_idx is None:
                         for i, row in enumerate(rows):
-                            period_matches = sum(1 for c in row if c and re.match(period_pattern, c.strip()))
-                            if period_matches >= 2 and len(row) >= 4:
+                            period_matches = sum(1 for c in row if c and _is_period_header(c))
+                            if period_matches >= 2 and len(row) >= 3:
                                 header_row_idx = i
                                 break
 
@@ -273,8 +288,8 @@ class DynamicPayrollProcessor:
                 if header_row_idx is None:
                     # fallback: row that looks like it has multiple period headers
                     for i, row in enumerate(rows):
-                        period_matches = sum(1 for c in row if c and re.match(period_pattern, c.strip()))
-                    if period_matches >= 2 and len(row) >= 4:
+                        period_matches = sum(1 for c in row if c and _is_period_header(c))
+                        if period_matches >= 2 and len(row) >= 3:
                             header_row_idx = i
                             break
                 if header_row_idx is None:
@@ -1055,39 +1070,62 @@ class DynamicPayrollProcessor:
         Use LibreOffice to convert XLSX -> PDF. Returns True on success.
         """
         soffice = shutil.which('soffice') or shutil.which('libreoffice')
-        if not soffice:
-            print("LibreOffice not found; cannot export template to PDF.")
-            return False
-
         outdir = os.path.dirname(os.path.abspath(pdf_path))
         os.makedirs(outdir, exist_ok=True)
 
-        # Convert; LibreOffice writes PDF next to file using the same basename.
-        cmd = [soffice, "--headless", "--convert-to", "pdf", "--outdir", outdir, xlsx_path]
-        try:
-            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        except subprocess.CalledProcessError as e:
-            print("LibreOffice conversion failed:", e)
-            return False
-
-        # LibreOffice will produce: outdir / basename(xlsx).pdf
-        base = os.path.splitext(os.path.basename(xlsx_path))[0]
-        produced = os.path.join(outdir, base + ".pdf")
-
-        # If the produced file isn't the desired name, rename it
-        if os.path.abspath(produced) != os.path.abspath(pdf_path) and os.path.exists(produced):
+        if soffice:
+            # Convert via LibreOffice when available
+            cmd = [soffice, "--headless", "--convert-to", "pdf", "--outdir", outdir, xlsx_path]
             try:
-                os.replace(produced, pdf_path)
-            except Exception:
-                # copy/remove fallback
-                import shutil as _sh
-                _sh.copyfile(produced, pdf_path)
+                subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            except subprocess.CalledProcessError as e:
+                print("LibreOffice conversion failed:", e)
+            else:
+                base = os.path.splitext(os.path.basename(xlsx_path))[0]
+                produced = os.path.join(outdir, base + ".pdf")
+                if os.path.abspath(produced) != os.path.abspath(pdf_path) and os.path.exists(produced):
+                    try:
+                        os.replace(produced, pdf_path)
+                    except Exception:
+                        import shutil as _sh
+                        _sh.copyfile(produced, pdf_path)
+                        try:
+                            os.remove(produced)
+                        except Exception:
+                            pass
+                if os.path.exists(pdf_path):
+                    return True
+
+        if HAS_WIN32_EXCEL:
+            excel = None
+            co_initialised = False
+            try:
+                if pythoncom is not None:
+                    pythoncom.CoInitialize()
+                    co_initialised = True
+                excel = win32com.client.DispatchEx("Excel.Application")  # type: ignore[attr-defined]
+                excel.Visible = False
+                excel.DisplayAlerts = False
+                workbook = excel.Workbooks.Open(os.path.abspath(xlsx_path))
+                workbook.ExportAsFixedFormat(0, os.path.abspath(pdf_path))
+                workbook.Close(False)
+                return os.path.exists(pdf_path)
+            except Exception as e:
+                print(f"Excel automation failed: {e}")
+            finally:
                 try:
-                    os.remove(produced)
+                    if excel is not None:
+                        excel.Quit()
                 except Exception:
                     pass
+                if co_initialised and pythoncom is not None:
+                    try:
+                        pythoncom.CoUninitialize()
+                    except Exception:
+                        pass
 
-        return os.path.exists(pdf_path)
+        print("LibreOffice/Excel automation not available; cannot export template to PDF.")
+        return False
     def generate_pdf_from_excel_template(self, employee, output_filename, withholding_placement='both'):
         """
         Fill 'Template Payslip.xlsx' and export to a PDF that matches the Excel template exactly.
@@ -1172,7 +1210,8 @@ class DynamicPayrollProcessor:
         except Exception:
             Mailer = None
 
-        os.makedirs(output_dir, exist_ok=True)
+        output_dir_abs = os.path.abspath(output_dir)
+        os.makedirs(output_dir_abs, exist_ok=True)
         results = []
 
         mailer = Mailer() if Mailer is not None else None
@@ -1217,7 +1256,7 @@ class DynamicPayrollProcessor:
             clean_name = "".join(c for c in emp.get('name', '') if c.isalnum() or c in (' ', '-', '_')).rstrip()
             seq_num = int(emp.get('seq')) if str(emp.get('seq', '')).isdigit() else 0
             filename = f"payslip_{seq_num:03d}_{clean_name.replace(' ', '_')}.pdf"
-            outpath = os.path.join(output_dir, filename)
+            outpath = os.path.join(output_dir_abs, filename)
 
             # Log progress per employee
             msg_line = f"[{idx}/{total}] Generating: {filename}"
@@ -1289,7 +1328,7 @@ class DynamicPayrollProcessor:
                 subject = (subject_tpl or "Payslip for {name}").format(name=emp.get('name', ''))
                 body = (body_tpl or "Please find attached your payslip.").format(name=emp.get('name', ''))
                 try:
-                    mailer.send(to_email, subject, body, attachments=[outpath])
+                    mailer.send(to_email, subject, body, attachments=[os.path.abspath(outpath)])
                     results.append({"name": emp.get('name', ''), "seq": emp.get('seq', ''), "status": "sent", "error": None, "path": outpath, "email": to_email})
                 except Exception as e:
                     results.append({"name": emp.get('name', ''), "seq": emp.get('seq', ''), "status": "error", "error": str(e), "path": outpath, "email": to_email})

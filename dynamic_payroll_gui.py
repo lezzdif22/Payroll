@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-import os, csv, re, threading
+import os, csv, re, threading, sys
 
 # Import the processor (assumed to exist in same workspace)
 from dynamic_payroll_pdf_generator import DynamicPayrollProcessor
@@ -526,7 +526,12 @@ class DynamicPayrollGUIGenerator:
         if os.path.exists(out):
             try:
                 import subprocess
-                subprocess.run(['xdg-open', out])
+                if sys.platform.startswith('win'):
+                    os.startfile(out)  # type: ignore[attr-defined]
+                elif sys.platform == 'darwin':
+                    subprocess.run(['open', out], check=False)
+                else:
+                    subprocess.run(['xdg-open', out], check=False)
             except Exception:
                 messagebox.showinfo('Output', out)
         else:

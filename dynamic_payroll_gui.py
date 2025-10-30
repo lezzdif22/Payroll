@@ -20,7 +20,7 @@ class DynamicPayrollGUIGenerator:
 
         output_dir = getattr(self, "output_dir", "output_pdfs")
         subject_tpl = "Payslip for {name}"
-        body_tpl    = "Hi {name},\n\nPlease find your payslip attached.\n\nThanks,\nPayroll"
+        body_tpl    = "Please find your payslip attached."
 
         results = self.processor.send_all_payslips(
             output_dir=output_dir,
@@ -109,7 +109,8 @@ class DynamicPayrollGUIGenerator:
         self.process_button = ttk.Button(action_frame, text="Process Payroll & Generate PDFs", command=self.start_processing)
         self.process_button.pack(side=tk.LEFT)
         ttk.Button(action_frame, text="Enter Missing Emails…", command=self._prompt_missing_emails).pack(side=tk.LEFT, padx=(8, 0))
-    # 'Send Test PDF' removed for packaged exe
+        ttk.Button(action_frame, text="Apply Stored Emails", command=self._apply_stored_emails).pack(side=tk.LEFT, padx=(8, 0))
+        # 'Send Test PDF' removed for packaged exe
         ttk.Button(action_frame, text="View Output PDFs", command=self.view_output_folder).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(action_frame, text="Email Dry Run",
            command=lambda: self._email_payslips(False)
@@ -343,6 +344,50 @@ class DynamicPayrollGUIGenerator:
         ttk.Button(btns, text="Cancel", command=win.destroy).pack(side="right", padx=6)
 
         # ----------------- helper methods -----------------
+    def _apply_stored_emails(self):
+        store = getattr(self.processor, "email_store", None)
+        if store is None:
+            try:
+                messagebox.showinfo("Emails", "No stored email book is available yet.")
+            except Exception:
+                self.log_result("Email store not available.")
+            return
+
+        if not getattr(self.processor, "employees", None):
+            try:
+                messagebox.showwarning("Emails", "Load a payroll file first before applying stored emails.")
+            except Exception:
+                self.log_result("Cannot apply stored emails without loaded employees.")
+            return
+
+        employees = list(getattr(self.processor, "employees", []) or [])
+        missing_before = sum(1 for emp in employees if not (emp.get("email") or "").strip())
+
+        try:
+            store.apply_to_employees(employees)
+        except Exception as exc:
+            try:
+                messagebox.showerror("Emails", f"Could not apply stored emails: {exc}")
+            except Exception:
+                self.log_result(f"Could not apply stored emails: {exc}")
+            return
+
+        # Update GUI copy of data
+        self.employee_data = list(employees)
+        try:
+            self.populate_employee_tree()
+        except Exception:
+            pass
+
+        missing_after = sum(1 for emp in employees if not (emp.get("email") or "").strip())
+        applied = missing_before - missing_after
+        try:
+            message = f"Applied stored emails. Updated {applied} records; {missing_after} still missing."
+            self.log_result(message)
+            messagebox.showinfo("Emails", message)
+        except Exception:
+            self.log_result(f"Stored emails applied. Updated {applied}; remaining {missing_after}.")
+
     def _reset_tree_columns(self):
         try:
         # base schema
@@ -425,28 +470,6 @@ class DynamicPayrollGUIGenerator:
             self.status_var.set('Generating PDFs...')
             success = 0
             for i, emp in enumerate(self.employee_data, 1):
-                try:
-                    missing = [p for p, info in emp.get('periods', {}).items() if not info.get('hours')]
-                    if missing:
-                        entered = {'ok': False}
-                        def ask_hours():
-                            from tkinter import simpledialog
-                            for p in missing:
-                                cur = emp.get('periods', {}).get(p, {}).get('hours', 0)
-                                ans = simpledialog.askstring('Hours for period', f"Enter hours for {emp.get('name','')}: {p}", initialvalue=f"{cur}", parent=self.root)
-                                try:
-                                    if ans is None:
-                                        continue
-                                    h = float(ans)
-                                    emp['periods'][p]['hours'] = h
-                                except Exception:
-                                    continue
-                            entered['ok'] = True
-                        self.root.after(0, ask_hours)
-                        while not entered['ok']:
-                            self.root.update()
-                except Exception:
-                    pass
                 outdir = 'output_pdfs'
                 os.makedirs(outdir, exist_ok=True)
                 seq = int(emp.get('seq') or 0) if str(emp.get('seq', '')).isdigit() else 0

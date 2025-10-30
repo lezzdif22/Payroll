@@ -517,6 +517,41 @@ class DynamicPayrollProcessor:
         except Exception:
             pass
 
+    def _get_period_entries(self, employee, include_zero=False):
+        """Return ordered period entries as (label, hours, raw)."""
+        period_map = employee.get('periods') or {}
+        periods_meta = getattr(self, 'periods', []) or []
+
+        if periods_meta:
+            labels = [p.get('name') for p in periods_meta if p.get('name')]
+        else:
+            labels = [lbl for lbl in period_map.keys() if lbl]
+
+        entries = []
+        seen = set()
+        for label in labels:
+            if label in seen:
+                continue
+            rec = period_map.get(label)
+            if not rec:
+                continue
+            raw = str(rec.get('raw', '') or '').strip()
+            hours_val = rec.get('hours', 0) or 0
+            try:
+                hours_val = float(hours_val)
+            except Exception:
+                try:
+                    hours_val = float(self.safe_float(hours_val, default=0.0))
+                except Exception:
+                    hours_val = 0.0
+            entries.append((label, hours_val, raw))
+            seen.add(label)
+
+        if include_zero:
+            return entries
+
+        return [entry for entry in entries if entry[1] > 0]
+
 
     def calculate_employee_payroll(self, employee):
         """Compute totals consistent with the Excel template."""
@@ -605,8 +640,15 @@ class DynamicPayrollProcessor:
 
             # Pay period and date (include all detected periods in breakdown header)
             current_date = datetime.now().strftime("%B %d, %Y")
-            period_names = list(employee.get('periods', {}).keys())
-            period_text = f"Pay Periods: {', '.join(period_names)} | Generated: {current_date}"
+            active_entries = self._get_period_entries(employee, include_zero=False)
+            labels = [lbl for lbl, _, _ in active_entries if lbl]
+            if not labels:
+                labels = [lbl for lbl, _, _ in self._get_period_entries(employee, include_zero=True) if lbl]
+            if labels:
+                label_str = ', '.join(labels)
+            else:
+                label_str = 'none recorded'
+            period_text = f"Pay Periods: {label_str} | Generated: {current_date}"
 
             period_style = ParagraphStyle(
                 'PeriodStyle',
@@ -640,9 +682,8 @@ class DynamicPayrollProcessor:
             total_hours = 0.0
             total_salary = 0.0
 
-            for period_name, period_info in employee.get('periods', {}).items():
-                hours = float(period_info.get('hours', 0) or 0)
-                rate = float(employee.get('hourly_rate', 0) or 0)
+            rate = float(employee.get('hourly_rate', 0) or 0)
+            for period_name, hours, _ in active_entries:
                 salary = hours * rate
                 period_data.append([
                     period_name,
@@ -847,22 +888,11 @@ class DynamicPayrollProcessor:
         rate        = float(employee.get('hourly_rate', 0) or 0)
         adj_amt     = float(employee.get('adjustment_amount', 0) or 0)
 
-        # Keep CSV period order
-        period_entries = []
-        for p in getattr(self, 'periods', []):
-            lbl = p.get('name')
-            rec = employee.get('periods', {}).get(lbl)
-            if not rec:
-                continue
-            try:
-                hrs = float(rec.get('hours', 0) or 0)
-            except Exception:
-                hrs = 0.0
-            period_entries.append((lbl, hrs))
-        if not period_entries:
-            period_entries = [('', 0.0)]
+        # Keep CSV period order but drop zero-hour periods for output
+        period_entries_all = self._get_period_entries(employee, include_zero=True)
+        period_entries = [entry for entry in period_entries_all if entry[1] > 0]
 
-        total_hours = sum(h for _, h in period_entries)
+        total_hours = sum(h for _, h, _ in period_entries)
         sal_earned  = round(rate * total_hours, 2)
         sub_total   = round(sal_earned - adj_amt, 2)
 
@@ -930,7 +960,11 @@ class DynamicPayrollProcessor:
         except Exception: pass
 
         try:
-            ws[CELL_HEADER_PERIODS] = ', '.join(lbl for lbl, _ in period_entries if lbl) or ws[CELL_HEADER_PERIODS].value
+            labels = [lbl for lbl, _, _ in period_entries if lbl]
+            if not labels:
+                labels = [lbl for lbl, _, _ in period_entries_all if lbl]
+            if labels:
+                ws[CELL_HEADER_PERIODS] = ', '.join(labels)
         except Exception:
             pass
 
@@ -941,7 +975,7 @@ class DynamicPayrollProcessor:
                 ws[f"{DATE_COL}{r}"]  = ""
                 ws[f"{HOURS_COL}{r}"] = ""
             except Exception: pass
-        for i, (lbl, hrs) in enumerate(period_entries[:BR_MAX_ROWS]):
+        for i, (lbl, hrs, _) in enumerate(period_entries[:BR_MAX_ROWS]):
             r = BR_START_ROW + i
             try:
                 ws[f"{DATE_COL}{r}"]  = lbl
@@ -955,7 +989,7 @@ class DynamicPayrollProcessor:
                 ws[f"{PAY_LABEL_COL}{r}"]  = ""
                 ws[f"{PAY_AMOUNT_COL}{r}"] = ""
             except Exception: pass
-        for i, (lbl, hrs) in enumerate(period_entries[:PAY_MAX_ROWS]):
+        for i, (lbl, hrs, _) in enumerate(period_entries[:PAY_MAX_ROWS]):
             r = PAY_START_ROW + i
             amt = round(hrs * rate, 2)
             try:
@@ -965,8 +999,8 @@ class DynamicPayrollProcessor:
 
         if len(period_entries) > PAY_MAX_ROWS:
             last_r = PAY_START_ROW + PAY_MAX_ROWS - 1
-            extra_labels = [lbl for lbl, _ in period_entries[PAY_MAX_ROWS:]]
-            extra_amt    = round(sum(hrs*rate for _, hrs in period_entries[PAY_MAX_ROWS:]), 2)
+            extra_labels = [lbl for lbl, _, _ in period_entries[PAY_MAX_ROWS:]]
+            extra_amt    = round(sum(hrs*rate for _, hrs, _ in period_entries[PAY_MAX_ROWS:]), 2)
             try:
                 cur_lbl = str(ws[f"{PAY_LABEL_COL}{last_r}"].value or "").strip()
                 ws[f"{PAY_LABEL_COL}{last_r}"] = (cur_lbl + "; " if cur_lbl else "") + "; ".join(extra_labels)
@@ -1001,8 +1035,9 @@ class DynamicPayrollProcessor:
         TOP_LEFT_COL = 'B'
         TOP_LEFT_ROW = 7
 
-        last_breakdown_row = BR_START_ROW + min(len(period_entries), BR_MAX_ROWS) - 1
-        last_pay_row       = PAY_START_ROW + min(len(period_entries), PAY_MAX_ROWS) - 1
+        count_for_layout = len(period_entries)
+        last_breakdown_row = BR_START_ROW + min(count_for_layout, BR_MAX_ROWS) - 1
+        last_pay_row       = PAY_START_ROW + min(count_for_layout, PAY_MAX_ROWS) - 1
 
         # Include the footer rows and add a tiny padding row
         STATIC_FOOTER_MIN_ROW = 22     # was 21; include the "Date:" row fully

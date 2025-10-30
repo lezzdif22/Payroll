@@ -31,6 +31,10 @@ jobs:
           python -m PyInstaller --noconfirm --clean --windowed --onefile ^
             --add-data "templates;templates" ^
             --add-data "PLV LOGO.png;." ^
+            --hidden-import win32timezone ^
+            --hidden-import pythoncom ^
+            --hidden-import pywintypes ^
+            --hidden-import win32com.client ^
             --name dynamic_payroll_gui dynamic_payroll_gui.py
 
       - name: Bundle templates and data
